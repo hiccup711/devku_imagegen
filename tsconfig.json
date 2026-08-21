@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022", "DOM"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "outDir": "dist",
+    "rootDir": "packages/image-mcp/src",
+    "sourceMap": true,
+    "skipLibCheck": true
+  },
+  "include": ["packages/image-mcp/src/**/*.ts"]
+}

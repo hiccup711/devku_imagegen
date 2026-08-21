@@ -1,0 +1,22 @@
+{
+  "name": "devku-imagegen",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "npm run typecheck && npm run build:tests && npm run bundle",
+    "build:tests": "tsc -p tsconfig.json",
+    "bundle": "esbuild packages/image-mcp/src/server.ts --bundle --platform=node --format=esm --target=node20 --outfile=plugins/devku-imagegen/server.mjs",
+    "test": "npm run build && node --test dist/**/*.test.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.5",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "esbuild": "^0.25.9",
+    "typescript": "^5.9.2"
+  }
+}

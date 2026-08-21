@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "devku_image": {
+      "command": "node",
+      "args": ["./server.mjs"],
+      "cwd": ".",
+      "env_vars": [
+        "CODEX_HOME",
+        "DEVKU_IMAGE_API_KEY",
+        "DEVKU_IMAGE_BASE_URL",
+        "DEVKU_IMAGE_CREDENTIAL_FILE",
+        "LOCALAPPDATA",
+        "USERPROFILE"
+      ],
+      "startup_timeout_sec": 10,
+      "tool_timeout_sec": 360
+    }
+  }
+}

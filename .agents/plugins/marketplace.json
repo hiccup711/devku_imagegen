@@ -1,0 +1,20 @@
+{
+  "name": "devku-imagegen",
+  "interface": {
+    "displayName": "Devku Plugins"
+  },
+  "plugins": [
+    {
+      "name": "devku-imagegen",
+      "source": {
+        "source": "local",
+        "path": "./plugins/devku-imagegen"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}
