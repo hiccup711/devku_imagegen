@@ -4,7 +4,7 @@ import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
-test("bundled MCP server exposes generate_image and fails clearly without a key", async () => {
+test("bundled MCP server exposes both image tools and fails clearly without a key", async () => {
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [join(process.cwd(), "plugins", "devku-imagegen", "server.mjs")],
@@ -22,7 +22,7 @@ test("bundled MCP server exposes generate_image and fails clearly without a key"
     const tools = await client.listTools();
     assert.deepEqual(
       tools.tools.map((tool) => tool.name),
-      ["generate_image"],
+      ["generate_image", "edit_image"],
     );
 
     const result = await client.callTool({
@@ -33,6 +33,13 @@ test("bundled MCP server exposes generate_image and fails clearly without a key"
     });
     assert.equal(result.isError, true);
     assert.match(JSON.stringify(result.content), /No image API credential is available/);
+
+    const edit = await client.callTool({
+      name: "edit_image",
+      arguments: { prompt: "Make it blue.", images: ["/tmp/devku-missing.png"] },
+    });
+    assert.equal(edit.isError, true);
+    assert.match(JSON.stringify(edit.content), /No image API credential is available/);
   } finally {
     await client.close();
   }

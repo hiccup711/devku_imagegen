@@ -20802,14 +20802,14 @@ var McpServer = class {
     }
     return registeredPrompt;
   }
-  _createRegisteredTool(name, title, description, inputSchema, outputSchema, annotations, execution, _meta, handler) {
+  _createRegisteredTool(name, title, description, inputSchema, outputSchema, annotations2, execution, _meta, handler) {
     validateAndWarnToolName(name);
     const registeredTool = {
       title,
       description,
       inputSchema: getZodSchemaObject(inputSchema),
       outputSchema: getZodSchemaObject(outputSchema),
-      annotations,
+      annotations: annotations2,
       execution,
       _meta,
       handler,
@@ -20860,7 +20860,7 @@ var McpServer = class {
     let description;
     let inputSchema;
     let outputSchema;
-    let annotations;
+    let annotations2;
     if (typeof rest[0] === "string") {
       description = rest.shift();
     }
@@ -20869,17 +20869,17 @@ var McpServer = class {
       if (isZodRawShapeCompat(firstArg)) {
         inputSchema = rest.shift();
         if (rest.length > 1 && typeof rest[0] === "object" && rest[0] !== null && !isZodRawShapeCompat(rest[0])) {
-          annotations = rest.shift();
+          annotations2 = rest.shift();
         }
       } else if (typeof firstArg === "object" && firstArg !== null) {
         if (Object.values(firstArg).some((v) => typeof v === "object" && v !== null)) {
           throw new Error(`Tool ${name} expected a Zod schema or ToolAnnotations, but received an unrecognized object`);
         }
-        annotations = rest.shift();
+        annotations2 = rest.shift();
       }
     }
     const callback = rest[0];
-    return this._createRegisteredTool(name, void 0, description, inputSchema, outputSchema, annotations, { taskSupport: "forbidden" }, void 0, callback);
+    return this._createRegisteredTool(name, void 0, description, inputSchema, outputSchema, annotations2, { taskSupport: "forbidden" }, void 0, callback);
   }
   /**
    * Registers a tool with a config object and callback.
@@ -20888,8 +20888,8 @@ var McpServer = class {
     if (this._registeredTools[name]) {
       throw new Error(`Tool ${name} is already registered`);
     }
-    const { title, description, inputSchema, outputSchema, annotations, _meta } = config2;
-    return this._createRegisteredTool(name, title, description, inputSchema, outputSchema, annotations, { taskSupport: "forbidden" }, _meta, cb);
+    const { title, description, inputSchema, outputSchema, annotations: annotations2, _meta } = config2;
+    return this._createRegisteredTool(name, title, description, inputSchema, outputSchema, annotations2, { taskSupport: "forbidden" }, _meta, cb);
   }
   prompt(name, ...rest) {
     if (this._registeredPrompts[name]) {
@@ -21219,15 +21219,29 @@ async function resolveImageApiKey() {
 
 // packages/image-mcp/src/image-client.ts
 import { randomUUID } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { homedir as homedir2 } from "node:os";
-import { basename, extname, join as join2 } from "node:path";
+import { basename, extname, isAbsolute, join as join2 } from "node:path";
 var IMAGE_MODELS = ["gpt-image-2", "gpt-image-1.5"];
 var MAX_IMAGE_BYTES = 64 * 1024 * 1024;
-function buildImageEndpoint(baseUrl) {
+var MAX_EDIT_IMAGES = 16;
+var MAX_INPUT_IMAGE_BYTES = 20 * 1024 * 1024;
+var MAX_EDIT_UPLOAD_BYTES = 28 * 1024 * 1024;
+function buildImageEndpoint(baseUrl, operation = "generations") {
   const normalized = baseUrl.trim().replace(/\/+$/, "");
   if (!normalized) throw new Error("DEVKU_IMAGE_BASE_URL is empty.");
-  return normalized.endsWith("/images/generations") ? normalized : `${normalized}/images/generations`;
+  const root = normalized.replace(/\/images\/(generations|edits)$/, "");
+  return `${root}/images/${operation}`;
+}
+function detectImageType(bytes) {
+  const startsWith = (signature) => signature.every((value, index) => bytes[index] === value);
+  if (startsWith([137, 80, 78, 71, 13, 10, 26, 10])) return { mimeType: "image/png", extension: "png" };
+  if (startsWith([255, 216, 255])) return { mimeType: "image/jpeg", extension: "jpg" };
+  const ascii = (start, end) => String.fromCharCode(...bytes.subarray(start, end));
+  if (bytes.length >= 12 && ascii(0, 4) === "RIFF" && ascii(8, 12) === "WEBP") {
+    return { mimeType: "image/webp", extension: "webp" };
+  }
+  return void 0;
 }
 function safeOutputName(outputName) {
   if (!outputName) return `devku-image-${Date.now()}-${randomUUID().slice(0, 8)}.png`;
@@ -21273,32 +21287,123 @@ async function generateImage(input, options) {
     }),
     signal: AbortSignal.timeout(3e5)
   });
+  return saveImageResponse(response, "Image generation", input.model, input.outputName, options.outputDirectory);
+}
+async function saveImageResponse(response, operation, model, outputName, outputDirectoryOption) {
   if (!response.ok) {
-    throw new Error(`Image generation failed (${response.status}): ${await readResponseBody(response)}`);
+    throw new Error(`${operation} failed (${response.status}): ${await readResponseBody(response)}`);
   }
   const payload = await response.json();
   const item = payload.data?.[0];
-  if (!item) throw new Error("Image generation response did not contain data[0].");
+  if (!item) throw new Error(`${operation} response did not contain data[0].`);
   const image = item.b64_json ? { base64: item.b64_json, mimeType: "image/png" } : item.url ? await downloadImage(item.url) : null;
-  if (!image) throw new Error("Image generation response contained neither b64_json nor url.");
+  if (!image) throw new Error(`${operation} response contained neither b64_json nor url.`);
   const bytes = Buffer.from(image.base64, "base64");
   if (bytes.length === 0 || bytes.length > MAX_IMAGE_BYTES) {
-    throw new Error(`Image generation returned invalid size: ${bytes.length} bytes`);
+    throw new Error(`${operation} returned invalid size: ${bytes.length} bytes`);
   }
-  const outputDirectory = options.outputDirectory ?? join2(process.env.CODEX_HOME || join2(homedir2(), ".codex"), "generated_images");
+  const outputDirectory = outputDirectoryOption ?? join2(process.env.CODEX_HOME || join2(homedir2(), ".codex"), "generated_images");
   await mkdir(outputDirectory, { recursive: true, mode: 448 });
-  const path = join2(outputDirectory, safeOutputName(input.outputName));
+  const path = join2(outputDirectory, safeOutputName(outputName));
   await writeFile(path, bytes, { mode: 384 });
-  return { path, base64: image.base64, mimeType: image.mimeType, model: input.model };
+  return { path, base64: image.base64, mimeType: image.mimeType, model };
+}
+async function locateInput(path, label, mask) {
+  if (!isAbsolute(path)) throw new Error(`${label} must be an absolute local file path.`);
+  const info = await stat(path).catch(() => void 0);
+  if (!info?.isFile()) throw new Error(`${label} was not found or is not a file.`);
+  if (info.size > MAX_INPUT_IMAGE_BYTES) throw new Error(`${label} is larger than 20 MB.`);
+  return { label, path, size: info.size, mask };
+}
+async function readInput(file) {
+  const bytes = new Uint8Array(await readFile(file.path));
+  if (bytes.length > MAX_INPUT_IMAGE_BYTES) throw new Error(`${file.label} is larger than 20 MB.`);
+  const type = detectImageType(bytes);
+  if (file.mask && type?.mimeType !== "image/png") throw new Error("The mask must be a PNG image.");
+  if (!type) throw new Error(`${file.label} is not a PNG, JPEG or WebP image.`);
+  return { bytes, ...type };
+}
+async function editImage(input, options) {
+  if (!options.apiKey) throw new Error("DEVKU_IMAGE_API_KEY is not configured.");
+  if (input.images.length === 0 || input.images.length > MAX_EDIT_IMAGES) {
+    throw new Error(`Provide between 1 and ${MAX_EDIT_IMAGES} input images.`);
+  }
+  const files = [];
+  for (const [index, path] of input.images.entries()) files.push(await locateInput(path, `Image ${index + 1}`, false));
+  if (input.mask) files.push(await locateInput(input.mask, "The mask", true));
+  const tooLarge = "Input images are larger than 28 MB in total; compress them or use fewer images.";
+  if (files.reduce((total2, file) => total2 + file.size, 0) > MAX_EDIT_UPLOAD_BYTES) throw new Error(tooLarge);
+  const form = new FormData();
+  form.append("model", input.model);
+  form.append("prompt", input.prompt);
+  form.append("size", input.size);
+  form.append("quality", input.quality);
+  form.append("n", "1");
+  let total = 0;
+  for (const [index, file] of files.entries()) {
+    const { bytes, mimeType, extension } = await readInput(file);
+    total += bytes.length;
+    if (total > MAX_EDIT_UPLOAD_BYTES) throw new Error(tooLarge);
+    const blob = new Blob([bytes], { type: mimeType });
+    if (file.mask) form.append("mask", blob, "mask.png");
+    else form.append("image[]", blob, `image-${index + 1}.${extension}`);
+  }
+  const response = await fetch(buildImageEndpoint(options.baseUrl, "edits"), {
+    method: "POST",
+    headers: { authorization: `Bearer ${options.apiKey}` },
+    body: form,
+    signal: AbortSignal.timeout(3e5)
+  });
+  return saveImageResponse(response, "Image edit", input.model, input.outputName, options.outputDirectory);
 }
 
 // packages/image-mcp/src/server.ts
 var server = new McpServer(
-  { name: "devku-image", version: "0.1.0" },
+  { name: "devku-image", version: "0.2.0" },
   {
-    instructions: "Generate real raster images through the configured Devku-compatible Image API. Use generate_image for UI concepts, illustrations, product imagery, and bitmap assets. Never replace requested image generation with SVG, CSS, canvas, or local drawing commands."
+    instructions: "Generate real raster images with generate_image, and edit or transform existing images with edit_image, through the configured Devku-compatible Image API. Use them for UI concepts, illustrations, product imagery, bitmap assets, restyling, background changes and reference-based generation. edit_image needs absolute local file paths; if the user only attached an image without a path, ask for the file path. Never replace requested image generation with SVG, CSS, canvas, or local drawing commands."
   }
 );
+var annotations = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: false,
+  openWorldHint: true
+};
+var sharedSchema = {
+  model: external_exports.enum(IMAGE_MODELS).default("gpt-image-2").describe("Image model"),
+  size: external_exports.string().min(3).max(32).default("1024x1024").describe("Requested image dimensions"),
+  quality: external_exports.enum(["low", "medium", "high", "auto"]).default("auto"),
+  outputName: external_exports.string().min(1).max(120).optional().describe("Optional filename only; directories are ignored")
+};
+async function runImageTool(summary, run) {
+  try {
+    const apiKey = await resolveImageApiKey();
+    const image = await run({
+      baseUrl: process.env.DEVKU_IMAGE_BASE_URL || "https://a1.devku.ai/v1",
+      apiKey
+    });
+    return {
+      content: [
+        {
+          type: "text",
+          text: `${summary} with ${image.model}. Saved to ${image.path}`
+        },
+        {
+          type: "image",
+          data: image.base64,
+          mimeType: image.mimeType
+        }
+      ]
+    };
+  } catch (error2) {
+    const message = error2 instanceof Error ? error2.message : "Unknown image generation error";
+    return {
+      isError: true,
+      content: [{ type: "text", text: message }]
+    };
+  }
+}
 server.registerTool(
   "generate_image",
   {
@@ -21306,46 +21411,28 @@ server.registerTool(
     description: "Generate a raster image with gpt-image-2 or gpt-image-1.5, save it securely, and return both a preview and the exact local path.",
     inputSchema: {
       prompt: external_exports.string().min(1).max(32e3).describe("Detailed image generation prompt"),
-      model: external_exports.enum(IMAGE_MODELS).default("gpt-image-2").describe("Image model"),
-      size: external_exports.string().min(3).max(32).default("1024x1024").describe("Requested image dimensions"),
-      quality: external_exports.enum(["low", "medium", "high", "auto"]).default("auto"),
-      outputName: external_exports.string().min(1).max(120).optional().describe("Optional filename only; directories are ignored")
+      ...sharedSchema
     },
-    annotations: {
-      readOnlyHint: false,
-      destructiveHint: false,
-      idempotentHint: false,
-      openWorldHint: true
-    }
+    annotations
   },
-  async (input) => {
-    try {
-      const apiKey = await resolveImageApiKey();
-      const image = await generateImage(input, {
-        baseUrl: process.env.DEVKU_IMAGE_BASE_URL || "https://a1.devku.ai/v1",
-        apiKey
-      });
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Generated with ${image.model}. Saved to ${image.path}`
-          },
-          {
-            type: "image",
-            data: image.base64,
-            mimeType: image.mimeType
-          }
-        ]
-      };
-    } catch (error2) {
-      const message = error2 instanceof Error ? error2.message : "Unknown image generation error";
-      return {
-        isError: true,
-        content: [{ type: "text", text: message }]
-      };
-    }
-  }
+  async (input) => runImageTool("Generated", (options) => generateImage(input, options))
+);
+server.registerTool(
+  "edit_image",
+  {
+    title: "Edit image",
+    description: "Edit or transform existing local images (image-to-image) with gpt-image-2 or gpt-image-1.5, save the result securely, and return both a preview and the exact local path. Use when the user wants to modify, restyle, extend, combine or use reference images. Pass absolute local file paths, including paths returned by earlier generate_image or edit_image calls.",
+    inputSchema: {
+      prompt: external_exports.string().min(1).max(32e3).describe("What to change or create from the input images"),
+      images: external_exports.array(external_exports.string().min(1).max(1024)).min(1).max(MAX_EDIT_IMAGES).describe("Absolute local paths of PNG, JPEG or WebP input images; the mask applies to the first image"),
+      mask: external_exports.string().min(1).max(1024).optional().describe(
+        "Optional absolute path of a PNG mask with an alpha channel, the same size as the first image; transparent areas are edited"
+      ),
+      ...sharedSchema
+    },
+    annotations
+  },
+  async (input) => runImageTool(`Edited ${input.images.length} image(s)`, (options) => editImage(input, options))
 );
 var transport = new StdioServerTransport();
 await server.connect(transport);

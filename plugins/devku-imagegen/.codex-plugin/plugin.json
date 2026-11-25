@@ -1,7 +1,7 @@
 {
   "name": "devku-imagegen",
-  "version": "0.1.0",
-  "description": "Generate real raster images in Codex through the Devku image service.",
+  "version": "0.2.0",
+  "description": "Generate and edit real raster images in Codex through the Devku image service.",
   "author": {
     "name": "Devku",
     "url": "https://github.com/hiccup711"
@@ -13,14 +13,15 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Devku Image Gen",
-    "shortDescription": "Generate images with gpt-image-2 and gpt-image-1.5.",
-    "longDescription": "Adds secure, local image generation to Codex through the Devku-compatible image API.",
+    "shortDescription": "Generate and edit images with gpt-image-2 and gpt-image-1.5.",
+    "longDescription": "Adds secure, local image generation and image-to-image editing to Codex through the Devku-compatible image API.",
     "developerName": "Devku",
     "category": "Developer Tools",
-    "capabilities": ["Image generation", "Local file output"],
+    "capabilities": ["Image generation", "Image editing", "Local file output"],
     "defaultPrompt": [
       "Generate a polished image for this project.",
-      "Create a UI concept image from my requirements."
+      "Create a UI concept image from my requirements.",
+      "Edit this image: change the background to pure white."
     ]
   },
   "mcpServers": "./.mcp.json"

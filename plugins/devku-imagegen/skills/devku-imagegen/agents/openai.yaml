@@ -1,11 +1,11 @@
 interface:
   display_name: "Devku Image Gen"
-  short_description: "Generate images through the Devku image service"
+  short_description: "Generate and edit images through the Devku image service"
   default_prompt: "Use $devku-imagegen to generate a polished image for this project."
 dependencies:
   tools:
     - type: "mcp"
       value: "devku_image"
-      description: "Devku-compatible GPT Image generation MCP server"
+      description: "Devku-compatible GPT Image generation and editing MCP server"
 policy:
   allow_implicit_invocation: true
