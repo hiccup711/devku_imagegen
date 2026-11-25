@@ -1,6 +1,6 @@
 # Devku Image Gen for Codex
 
-让 Codex 主动识别并调用 Devku 图片生成服务。插件提供真实位图生成工具，支持 `gpt-image-2` 和 `gpt-image-1.5`，生成结果会保存到本机并直接返回预览。
+让 Codex 主动识别并调用 Devku 图片生成服务。插件提供真实位图生成（`generate_image`）和图生图编辑（`edit_image`）两个工具，支持 `gpt-image-2` 和 `gpt-image-1.5`，结果会保存到本机并直接返回预览。
 
 ## 环境要求
 
@@ -48,6 +48,14 @@ codex plugin add devku-imagegen@devku-imagegen
 $devku-imagegen 生成一张 1024x1024 的测试图片：纯白背景，中央一个黑色圆形，不含文字。
 ```
 
+图生图：把本地图片的绝对路径告诉 Codex 即可，也可以直接接着修改上一张生成结果：
+
+```text
+$devku-imagegen 把 /Users/me/Pictures/logo.png 的背景换成纯白，主体保持不变。
+```
+
+`edit_image` 一次最多接收 16 张 PNG、JPEG 或 WebP 图片（单张不超过 20 MB，合计不超过 28 MB），可选一张带透明通道的 PNG 蒙版，透明区域为重绘区域。默认输出 `1024x1024`。图片在发送前会在本地校验格式，上传时的文件名统一为 `image-1.png` 这种形式，不会暴露本地路径。图生图会把输入图片一起计入用量。
+
 ## 凭证优先级
 
 MCP 按以下顺序读取凭证：
@@ -71,6 +79,7 @@ npm test
 
 - 仓库和插件包中不包含 API Key。
 - API Key 不写入 Codex 配置、项目文件或日志。
+- `edit_image` 只上传文件头为 PNG、JPEG 或 WebP 的本地文件，其他文件在本地就会被拒绝。
 - macOS 使用系统 Keychain；Windows 使用当前用户范围的 DPAPI。
 - 环境变量适合 CI 或临时测试，但不建议长期写在共享脚本中。
 
